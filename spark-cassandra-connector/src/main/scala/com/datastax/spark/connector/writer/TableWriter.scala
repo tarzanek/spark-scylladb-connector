@@ -6,6 +6,8 @@ import com.datastax.driver.core.BatchStatement.Type
 import com.datastax.driver.core._
 import com.datastax.spark.connector._
 import com.datastax.spark.connector.cql._
+import com.datastax.spark.connector.rdd.TokenRangeIterator
+import com.datastax.spark.connector.rdd.partitioner.CqlTokenRange
 import com.datastax.spark.connector.types.{CollectionColumnType, ListType, MapType}
 import com.datastax.spark.connector.util.Quote._
 import com.datastax.spark.connector.util.{CountingIterator, Logging}
@@ -23,7 +25,8 @@ class TableWriter[T] private (
     tableDef: TableDef,
     columnSelector: IndexedSeq[ColumnRef],
     rowWriter: RowWriter[T],
-    writeConf: WriteConf) extends Serializable with Logging {
+    writeConf: WriteConf,
+    tokenRangeAcc: Option[TokenRangeAccumulator]) extends Serializable with Logging {
 
   require(tableDef.isView == false,
     s"${tableDef.name} is a Materialized View and Views are not writable")
@@ -205,8 +208,16 @@ class TableWriter[T] private (
   def delete(columns: ColumnSelector) (taskContext: TaskContext, data: Iterator[T]): Unit =
     writeInternal(deleteQueryTemplate(columns), taskContext, data)
 
+  def extractTokenRange(data: Iterator[T]): Iterable[CqlTokenRange[_, _]] =
+    data match {
+      case TokenRangeIterator(_, ranges) => ranges
+      case _ => List()
+    }
+
   private def writeInternal(queryTemplate: String, taskContext: TaskContext, data: Iterator[T]) {
     val updater = OutputMetricsUpdater(taskContext, writeConf)
+    val tokenRanges = extractTokenRange(data)
+
     connector.withSessionDo { session =>
       val protocolVersion = session.getCluster.getConfiguration.getProtocolOptions.getProtocolVersion
       val rowIterator = new CountingIterator(data)
@@ -252,6 +263,8 @@ class TableWriter[T] private (
       val duration = updater.finish() / 1000000000d
       logInfo(f"Wrote ${rowIterator.count} rows to $keyspaceName.$tableName in $duration%.3f s.")
       if (boundStmtBuilder.logUnsetToNullWarning){ logWarning(boundStmtBuilder.UnsetToNullWarning) }
+
+      tokenRangeAcc.foreach(_.add(tokenRanges.toSet))
     }
   }
 }
@@ -378,7 +391,8 @@ object TableWriter {
       tableName: String,
       columnNames: ColumnSelector,
       writeConf: WriteConf,
-      checkPartitionKey: Boolean = false): TableWriter[T] = {
+      checkPartitionKey: Boolean = false,
+      tokenRangeAcc: Option[TokenRangeAccumulator] = None): TableWriter[T] = {
 
     val tableDef = Schema.tableFromCassandra(connector, keyspaceName, tableName)
     val selectedColumns = columnNames
@@ -390,6 +404,6 @@ object TableWriter {
       selectedColumns ++ optionColumns.map(_.ref))
 
     checkColumns(tableDef, selectedColumns, checkPartitionKey)
-    new TableWriter[T](connector, tableDef, selectedColumns, rowWriter, writeConf)
+    new TableWriter[T](connector, tableDef, selectedColumns, rowWriter, writeConf, tokenRangeAcc)
   }
 }

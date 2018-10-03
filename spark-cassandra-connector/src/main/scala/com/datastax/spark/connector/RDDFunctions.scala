@@ -30,10 +30,15 @@ class RDDFunctions[T](rdd: RDD[T]) extends WritableToCassandra[T] with Serializa
     writeConf: WriteConf = WriteConf.fromSparkConf(sparkContext.getConf))(
   implicit
     connector: CassandraConnector = CassandraConnector(sparkContext),
-    rwf: RowWriterFactory[T]): Unit = {
+    rwf: RowWriterFactory[T]): Option[TokenRangeAccumulator] = {
 
-    val writer = TableWriter(connector, keyspaceName, tableName, columns, writeConf)
+    val acc = TokenRangeAccumulator.empty
+    sparkContext.register(acc, "Written token ranges")
+
+    val writer = TableWriter(connector, keyspaceName, tableName, columns, writeConf, tokenRangeAcc = Some(acc))
     rdd.sparkContext.runJob(rdd, writer.write _)
+
+    Some(acc)
   }
   /**
    * Saves the data from [[org.apache.spark.rdd.RDD RDD]] to a new table defined by the given `TableDef`.
@@ -115,6 +120,7 @@ class RDDFunctions[T](rdd: RDD[T]) extends WritableToCassandra[T] with Serializa
       case c :SomeColumns => c.columns.nonEmpty
       case _  => false
     }
+
     val writer = TableWriter(connector, keyspaceName, tableName, keyColumns, writeConf, !columnDelete)
     rdd.sparkContext.runJob(rdd, writer.delete(deleteColumns) _)
   }

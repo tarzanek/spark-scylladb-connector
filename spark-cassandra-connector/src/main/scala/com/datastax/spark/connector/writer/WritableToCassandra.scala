@@ -45,7 +45,7 @@ abstract class WritableToCassandra[T] {
                       tableName: String,
                       columnNames: ColumnSelector,
                       writeConf: WriteConf)
-                     (implicit connector: CassandraConnector, rwf: RowWriterFactory[T])
+                     (implicit connector: CassandraConnector, rwf: RowWriterFactory[T]): Option[TokenRangeAccumulator]
 
   /**
     * Delete data from Cassandra table, using data from the [[org.apache.spark.rdd.RDD RDD]] as a list of primary keys.

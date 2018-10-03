@@ -47,11 +47,13 @@ class DStreamFunctions[T](dstream: DStream[T])
     writeConf: WriteConf = WriteConf.fromSparkConf(conf))(
   implicit
     connector: CassandraConnector = CassandraConnector(conf),
-    rwf: RowWriterFactory[T]): Unit = {
+    rwf: RowWriterFactory[T]): Option[TokenRangeAccumulator] = {
     warnIfKeepAliveIsShort()
 
     val writer = TableWriter(connector, keyspaceName, tableName, columnNames, writeConf)
     dstream.foreachRDD(rdd => rdd.sparkContext.runJob(rdd, writer.write _))
+
+    None
   }
 
   /**
