@@ -344,6 +344,7 @@ class CassandraTableScanRDD[R] private[connector](
       val iteratorWithMetrics = scanResult.rows.map(inputMetricsUpdater.updateMetrics)
       val result = iteratorWithMetrics.map(rowReader.read(_, scanResult.metadata))
       logDebug(s"Row iterator for range ${range.cql(partitionKeyStr)} obtained successfully.")
+
       result
     } catch {
       case t: Throwable =>
@@ -366,6 +367,7 @@ class CassandraTableScanRDD[R] private[connector](
     val rowIterator = tokenRanges.iterator.flatMap(
       fetchTokenRange(scanner, _: CqlTokenRange[_, _], metricsUpdater))
     val countingIterator = new CountingIterator(rowIterator, limitForIterator(limit))
+    val annotatedIterator = new TokenRangeIterator(countingIterator, tokenRanges)
 
     context.addTaskCompletionListener { (context) =>
       val duration = metricsUpdater.finish() / 1000000000d
@@ -373,7 +375,8 @@ class CassandraTableScanRDD[R] private[connector](
         f"for partition ${partition.index} in $duration%.3f s.")
       scanner.close()
     }
-    countingIterator
+
+    annotatedIterator
   }
 
   override def toEmptyCassandraRDD: EmptyCassandraRDD[R] = {
