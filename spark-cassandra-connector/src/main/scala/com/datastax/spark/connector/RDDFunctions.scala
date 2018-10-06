@@ -35,7 +35,7 @@ class RDDFunctions[T](rdd: RDD[T]) extends WritableToCassandra[T] with Serializa
     val acc = TokenRangeAccumulator.empty
     sparkContext.register(acc, "Written token ranges")
 
-    val writer = TableWriter(connector, keyspaceName, tableName, columns, writeConf, tokenRangeAcc = Some(acc))
+    val writer = TableWriter(connector, keyspaceName, tableName, columns, writeConf, partitions = rdd.partitions, tokenRangeAcc = Some(acc))
     rdd.sparkContext.runJob(rdd, writer.write _)
 
     Some(acc)
