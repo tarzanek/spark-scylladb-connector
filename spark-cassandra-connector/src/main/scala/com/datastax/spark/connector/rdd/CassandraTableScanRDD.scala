@@ -6,7 +6,7 @@ import com.datastax.driver.core._
 import com.datastax.spark.connector._
 import com.datastax.spark.connector.cql._
 import com.datastax.spark.connector.rdd.CassandraLimit._
-import com.datastax.spark.connector.rdd.partitioner.dht.{Token => ConnectorToken}
+import com.datastax.spark.connector.rdd.partitioner.dht.{TokenFactory, Token => ConnectorToken}
 import com.datastax.spark.connector.rdd.partitioner.{CassandraPartition, CassandraPartitionGenerator, CqlTokenRange, NodeAddresses, _}
 import com.datastax.spark.connector.rdd.reader._
 import com.datastax.spark.connector.types.ColumnType
@@ -69,7 +69,8 @@ class CassandraTableScanRDD[R] private[connector](
     val limit: Option[CassandraLimit] = None,
     val clusteringOrder: Option[ClusteringOrder] = None,
     val readConf: ReadConf = ReadConf(),
-    overridePartitioner: Option[Partitioner] = None)(
+    overridePartitioner: Option[Partitioner] = None,
+    tokenRangeFilter: (Long, Long) => Boolean = (_, _) => true)(
   implicit
     val classTag: ClassTag[R],
     @transient val rowReaderFactory: RowReaderFactory[R])
@@ -353,8 +354,19 @@ class CassandraTableScanRDD[R] private[connector](
   }
 
   override def compute(split: Partition, context: TaskContext): Iterator[R] = {
-    val partition = split.asInstanceOf[CassandraPartition[_, _]]
-    val tokenRanges = partition.tokenRanges
+    val partition = split.asInstanceOf[CassandraPartition[TokenFactory.V, TokenFactory.T]]
+    val tokenRanges = // Only let token ranges that shouldn't be skipped through
+        partition.tokenRanges.filter { cqlRange =>
+          val (start, end) = (cqlRange.range.start.value, cqlRange.range.end.value) match {
+            case (s: Long, e: Long) => (s, e)
+            case _ =>
+              throw new Exception("Encountered TokenRanges that use tokens of a type that isn't Long." +
+                "This probably means that the server is using a Random partitioner which is currently" +
+                s"unsupported. Range: ${cqlRange.range}")
+          }
+
+          tokenRangeFilter(start, end)
+        }
     val metricsUpdater = InputMetricsUpdater(context, readConf)
 
     val columnNames = selectedColumnRefs.map(_.selectedAs).toIndexedSeq

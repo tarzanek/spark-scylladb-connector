@@ -12,7 +12,8 @@ import com.datastax.spark.connector.rdd.reader.RowReaderFactory
 class StreamingContextFunctions (ssc: StreamingContext) extends SparkContextFunctions(ssc.sparkContext) {
   import scala.reflect.ClassTag
 
-  override def cassandraTable[T](keyspace: String, table: String)(
+  override def cassandraTable[T](keyspace: String, table: String,
+                                 tokenRangeFilter: (Long, Long) => Boolean = (_, _) => true)(
     implicit
       connector: CassandraConnector = CassandraConnector(ssc.sparkContext),
       readConf: ReadConf = ReadConf.fromSparkConf(sc.getConf),
