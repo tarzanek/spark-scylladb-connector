@@ -70,7 +70,7 @@ class CassandraTableScanRDD[R] private[connector](
     val clusteringOrder: Option[ClusteringOrder] = None,
     val readConf: ReadConf = ReadConf(),
     overridePartitioner: Option[Partitioner] = None,
-    tokenRangeFilter: (Long, Long) => Boolean = (_, _) => true)(
+    val tokenRangeFilter: (Long, Long) => Boolean = (_, _) => true)(
   implicit
     val classTag: ClassTag[R],
     @transient val rowReaderFactory: RowReaderFactory[R])
@@ -105,7 +105,8 @@ class CassandraTableScanRDD[R] private[connector](
       limit = limit,
       clusteringOrder = clusteringOrder,
       readConf = readConf,
-      overridePartitioner = overridePartitioner)
+      overridePartitioner = overridePartitioner,
+      tokenRangeFilter = tokenRangeFilter)
   }
 
 
@@ -121,7 +122,8 @@ class CassandraTableScanRDD[R] private[connector](
       limit = limit,
       clusteringOrder = clusteringOrder,
       readConf = readConf,
-      overridePartitioner = overridePartitioner)
+      overridePartitioner = overridePartitioner,
+      tokenRangeFilter = tokenRangeFilter)
   }
 
   /**
@@ -165,7 +167,8 @@ class CassandraTableScanRDD[R] private[connector](
       limit = limit,
       clusteringOrder = clusteringOrder,
       readConf = readConf,
-      overridePartitioner = cassPart)
+      overridePartitioner = cassPart,
+      tokenRangeFilter = tokenRangeFilter)
   }
 
   /** Selects a subset of columns mapped to the key and returns an RDD of pairs.
@@ -365,7 +368,11 @@ class CassandraTableScanRDD[R] private[connector](
                 s"unsupported. Range: ${cqlRange.range}")
           }
 
-          tokenRangeFilter(start, end)
+          val result = tokenRangeFilter(start, end)
+
+          logInfo(s"tokenRangeFilter(${start}, ${end}) = ${result}")
+
+          result
         }
     val metricsUpdater = InputMetricsUpdater(context, readConf)
 
@@ -496,6 +503,7 @@ object CassandraTableScanRDD {
       where = rdd.where,
       limit = rdd.limit,
       clusteringOrder = rdd.clusteringOrder,
-      readConf = rdd.readConf)
+      readConf = rdd.readConf,
+      tokenRangeFilter = rdd.tokenRangeFilter)
   }
 }
